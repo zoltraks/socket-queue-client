@@ -14,8 +14,13 @@ const argv = yargs
 	.alias('p', 'port')
 	.alias('t', 'topic')
 	.alias('b', 'broker')
+	.alias('q', 'qos')
+	.alias('Q', 'quiet')
+	.alias('T', 'text')
 	.boolean('help')
 	.boolean('pretend')
+	.boolean('quiet')
+	.boolean('text')
 	.help(false)
 	.argv
 	;
@@ -34,6 +39,25 @@ if (argv.pretend) {
 	process.exit(0);
 }
 
+let log = {
+	write: (msg) => {
+		if (configuration.quiet) {
+			return;
+		}
+		else {
+			console.log(msg);
+		}
+	},
+	error: (msg) => {
+		if (configuration.quiet) {
+			return;
+		}
+		else {
+			console.error(msg);
+		}
+	}
+}
+
 const State = require('./class/state');
 let state = new State();
 
@@ -43,23 +67,42 @@ let lockMessageBuffer = false;
 function socketConnect(host, port) {
 	const client = new net.Socket();
 	client.setTimeout(5000);
-	client.setEncoding('binary');
-
+	if (!configuration.text) {
+		client.setEncoding('binary');
+	}
+	state.socketIdle = false;
 	// When receive server send back data.
 	client.on('data', (data) => {
-		let chunk = Buffer.from(data, 'binary');
-		state.dataBuffer.push.apply(state.dataBuffer, chunk);
-		while (true) {
-			let p = state.dataBuffer.indexOf(3);
-			if (p < 0) {
-				break;
+		state.socketIdle = false;
+		if (configuration.text) {
+			state.textBuffer += data;
+			while (true) {
+				let p = state.textBuffer.indexOf("\n");
+				if (p < 0) {
+					break;
+				}
+				let m = state.textBuffer.substring(0, p).replace(/\r^/gm,"");
+				if (m.length > 0) {
+					state.messageBuffer.push(m);
+				}
+				state.textBuffer = state.textBuffer.slice(p + 1);
 			}
-			let x = state.dataBuffer.indexOf(2);
-			if (x >= 0 && x < p) {
-				let m = String.fromCharCode.apply(null, state.dataBuffer.slice(x + 1, p));
-				state.messageBuffer.push(m);
+		}
+		else {
+			let chunk = Buffer.from(data, 'binary');
+			state.dataBuffer.push.apply(state.dataBuffer, chunk);
+			while (true) {
+				let p = state.dataBuffer.indexOf(3);
+				if (p < 0) {
+					break;
+				}
+				let x = state.dataBuffer.indexOf(2);
+				if (x >= 0 && x < p) {
+					let m = String.fromCharCode.apply(null, state.dataBuffer.slice(x + 1, p));
+					state.messageBuffer.push(m);
+				}
+				state.dataBuffer = state.dataBuffer.slice(p + 1);
 			}
-			state.dataBuffer = state.dataBuffer.slice(p + 1);
 		}
 		if (state.messageBuffer.length && state.mqttClient) {
 			processMessageBuffer();
@@ -68,22 +111,25 @@ function socketConnect(host, port) {
 
 	// When connection disconnected.
 	client.on('end', () => {
-		console.log('Socket disconnected');
+		log.write('Socket disconnected');
 		state.socketClient = false;
 	});
 
 	client.on('timeout', () => {
-		console.log('Socket timeout');
+		if (!state.socketIdle) {
+			log.write('Socket idle');
+		}
+		state.socketIdle = true;
 	});
 
 	client.on('error', (error) => {
-		console.error('Socket error: ' + JSON.stringify(error));
+		log.error('Socket error: ' + JSON.stringify(error));
 		client.destroy();
 		state.socketClient = false;
 	});
 
 	client.connect(port, host, () => {
-		console.log('Socket connected to ' + client.remoteAddress + ':' + client.remotePort + ' from ' + client.localAddress + ":" + client.localPort);
+		log.write('Socket connected to ' + client.remoteAddress + ':' + client.remotePort + ' from ' + client.localAddress + ":" + client.localPort);
 	});
 
 	return client;
@@ -97,7 +143,7 @@ function mqttConnect(broker, topic) {
 	let client = mqtt.connect(getRealBrokerAddress(broker));
 
 	client.on('connect', () => {
-		console.log('Connected to MQTT broker ' + broker);
+		log.write('Connected to MQTT broker ' + broker);
 		state.mqttOnline = true;
 		lockMessageBuffer = false;
 		if (state.messageBuffer.length) {
@@ -106,25 +152,25 @@ function mqttConnect(broker, topic) {
 	});
 
 	client.on('reconnect', () => {
-		console.log('Reconnection to MQTT broker');
+		log.write('Reconnection to MQTT broker');
 		state.mqttOnline = false;
 	});
 
 	client.on('offline', () => {
-		console.log('Connection to MQTT broker is now offline');
+		log.write('Connection to MQTT broker is now offline');
 		state.mqttOnline = false;
 	});
 
 	client.on('error', (error) => {
-		console.error('MQTT error: ' + JSON.stringify(error));
+		log.error('MQTT error: ' + JSON.stringify(error));
 	});
 
 	client.on('message', (topic, message) => {
-		console.log('MQTT message (' + topic + '): "' + message + '"');
+		log.write('MQTT message (' + topic + '): "' + message + '"');
 	});
 
 	client.on('end', () => {
-		console.log('Connection to MQTT broker closed');
+		log.write('Connection to MQTT broker closed');
 		state.mqttOnline = false;
 		state.mqttClient = false;
 	});
@@ -155,7 +201,7 @@ function getRealBrokerAddress(broker) {
 
 function processMessageBuffer() {
 	if (lockMessageBuffer) {
-		console.log('Processing message buffer already in progress');
+		log.write('Processing message buffer already in progress');
 		return;
 	}
 	if (!state.mqttClient || !state.mqttOnline) {
@@ -181,7 +227,7 @@ function processMessageBuffer() {
 function parseOptions() {
 	if (argv.port) {
 		if (!Number.isInteger(argv.port)) {
-			console.error("Port number must be an integer");
+			log.error("Port number must be an integer");
 			return false;
 		}
 		configuration.port = argv.port;
@@ -199,6 +245,22 @@ function parseOptions() {
 		configuration.broker = argv.broker;
 	}
 
+	if (argv.quiet) {
+		configuration.quiet = argv.quiet;
+	}
+
+	if (argv.text) {
+		configuration.text = argv.text;
+	}
+	
+	if (argv.qos) {
+		if (!Number.isInteger(argv.qos)) {
+			log.error("Value for qos must be an integer");
+			return false;
+		}
+		configuration.qos = argv.qos;
+	}
+	
 	return true;
 }
 
@@ -220,6 +282,14 @@ function showHelp() {
 	console.log("  -t <topic>");
 	console.log("  --topic <topic>");
 	console.log("      MQTT topic name");
+	console.log();
+	console.log("  -q <qos>");
+	console.log("  --qos <qos>");
+	console.log("      MQTT qos value");
+	console.log();
+	console.log("  -T");
+	console.log("  --text");
+	console.log("      Text mode");
 	console.log();
 	console.log("  -!");
 	console.log("  --pretend");

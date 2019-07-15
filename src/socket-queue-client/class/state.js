@@ -1,9 +1,10 @@
 class State {
 
     socketClient;
-    mqttClient;
+    socketIdle;
 
     dataBuffer;
+    textBuffer;
     messageBuffer;
 
     mqttClient;
@@ -12,8 +13,10 @@ class State {
 
     constructor() {
         this.dataBuffer = [];
+        this.textBuffer = '';
         this.messageBuffer = [];
         this.socketClient = false;
+        this.socketIdle = false;
         this.mqttClient = false;
         this.mqttOnline = false;
         this.mqttTopic = '';

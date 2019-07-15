@@ -1,6 +1,11 @@
 class Configuration {
 
     /**
+     * Quiet (don't use a console)
+     */
+    quiet;
+
+    /**
      * Host address to connect
      */
     host;
@@ -19,13 +24,23 @@ class Configuration {
      * MQTT topic name
      */
     topic;
+    
+    /**
+     * MQTT qos value
+     */
+    qos;
+
+    /**
+     * Text mode
+     */
+    text;
 
     constructor(file)
     {
         this.host = 'localhost';
         this.port = 1000;
         this.broker = 'localhost';
-        this.topic = 'sensor/flock';
+        this.topic = 'data';
     }
 }
 
