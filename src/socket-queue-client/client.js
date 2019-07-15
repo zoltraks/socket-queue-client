@@ -3,6 +3,7 @@
 const net = require('net');
 const mqtt = require('mqtt');
 const yargs = require('yargs');
+const fs = require('fs');
 
 const Configuration = require('./class/configuration');
 let configuration = new Configuration();
@@ -17,6 +18,8 @@ const argv = yargs
 	.alias('q', 'qos')
 	.alias('Q', 'quiet')
 	.alias('T', 'text')
+	.alias('L', 'log')
+	.alias('v', 'verbose')
 	.boolean('help')
 	.boolean('pretend')
 	.boolean('quiet')
@@ -39,8 +42,62 @@ if (argv.pretend) {
 	process.exit(0);
 }
 
+function logConsole(lvl, msg) {
+	if (configuration.quiet) {
+		return;
+	}
+	switch (lvl) {
+		case undefined:
+		case "":
+		case "WRITE":
+			console.log(msg);
+			break;
+		case "ERROR":
+			console.error(msg);
+			break;
+	}
+}
+
+function logFile(messageText, fileName, messageSeverity) {
+	if (undefined == fileName || 0 == ("" + fileName).length) {
+		return true;
+	}
+	if (configuration.quiet && !configuration.verbose && 
+		(undefined === messageSeverity || 0 === ("" + messageSeverity).length 
+		|| "MESSAGE" === messageSeverity || "WRITE" === messageSeverity
+		)) {
+		return true;
+	}
+	let text = messageText;
+	//let hrTime = process.hrtime();
+	let now = new Date();
+	let ut = now.getTime();
+	//let ms = ("" + ut % 1000).padStart(3, '0');
+	let severity = (() => {
+		if (undefined == messageSeverity || 0 === ("" + messageSeverity).length) {
+			return "     ";
+		}
+		else {
+			return messageSeverity;
+		}
+	})();
+	text = now.toISOString().replace('T', ' ').replace('Z', '')
+		+ "\t" + severity + "\t" + text + "\r\n";
+	fs.appendFile(fileName, text, function (err) {
+		if (err) {
+			log.error("File error. " + err);
+			return false;
+		}
+		else {
+			return true;
+		}
+	});
+}
+
 let log = {
 	write: (msg) => {
+		logConsole("WRITE", msg);
+		logFile(msg, configuration.log);
 		if (configuration.quiet) {
 			return;
 		}
@@ -49,12 +106,8 @@ let log = {
 		}
 	},
 	error: (msg) => {
-		if (configuration.quiet) {
-			return;
-		}
-		else {
-			console.error(msg);
-		}
+		logConsole("ERROR", msg);
+		logFile(msg, configuration.log, "ERROR");
 	}
 }
 
@@ -63,7 +116,13 @@ let state = new State();
 
 let lockMessageBuffer = false;
 
-// This function create and return a net.Socket object to represent TCP client.
+// 
+/**
+ * This function creates and returns a net.Socket object to represent TCP client.
+ * 
+ * @param {*} host Host address
+ * @param {*} port Port number
+ */
 function socketConnect(host, port) {
 	const client = new net.Socket();
 	client.setTimeout(5000);
@@ -81,7 +140,7 @@ function socketConnect(host, port) {
 				if (p < 0) {
 					break;
 				}
-				let m = state.textBuffer.substring(0, p).replace(/\r^/gm,"");
+				let m = state.textBuffer.substring(0, p).replace(/\r^/gm, "");
 				if (m.length > 0) {
 					state.messageBuffer.push(m);
 				}
@@ -212,7 +271,13 @@ function processMessageBuffer() {
 		return;
 	}
 	lockMessageBuffer = true;
-	state.mqttClient.publish(state.mqttTopic, message, {}, (error) => {
+	state.mqttClient.publish(state.mqttTopic, message, {
+		cbStorePut: () => {
+			return 0;
+		},
+		qos: undefined === configuration.qos || !Number.isInteger(configuration.qos)
+			? 0 : configuration.qos
+	}, (error) => {
 		if (error) {
 			state.messageBuffer.unshift(message);
 			lockMessageBuffer = false;
@@ -249,10 +314,18 @@ function parseOptions() {
 		configuration.quiet = argv.quiet;
 	}
 
+	if (argv.verbose) {
+		configuration.verbose = argv.verbose;
+	}
+
 	if (argv.text) {
 		configuration.text = argv.text;
 	}
-	
+
+	if (argv.log) {
+		configuration.log = argv.log;
+	}
+
 	if (argv.qos) {
 		if (!Number.isInteger(argv.qos)) {
 			log.error("Value for qos must be an integer");
@@ -260,7 +333,7 @@ function parseOptions() {
 		}
 		configuration.qos = argv.qos;
 	}
-	
+
 	return true;
 }
 

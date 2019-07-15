@@ -35,6 +35,16 @@ class Configuration {
      */
     text;
 
+    /**
+     * Log file
+     */
+    log;
+
+    /**
+     * Verbose mode
+     */
+    verbose;
+
     constructor(file)
     {
         this.host = 'localhost';

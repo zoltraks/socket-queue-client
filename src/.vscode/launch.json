@@ -9,7 +9,11 @@
             "request": "launch",
             "name": "Launch Program",
             "program": "${workspaceFolder}\\socket-queue-client\\client.js",
-            "args": [ "-q", "2", "-T", "--help" ]
+            "args": [
+                "-q", "2", "-T", 
+                "-L", "C:\\LOG\\socket-queue.log", "-Q", "-v"
+                //, "--help" 
+            ]
         }
     ]
 }
