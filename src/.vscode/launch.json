@@ -11,8 +11,12 @@
             "program": "${workspaceFolder}\\socket-queue-client\\client.js",
             "args": [
                 "-q", "2", "-T", 
-                "-L", "C:\\LOG\\socket-queue.log", "-Q", "-v"
+                "-L", "C:\\LOG\\socket-queue.log" //, "-Q"
+                , "-v", ""
+                , "-h", "10.207.8.199"
+                , "-p", "6001"
                 //, "--help" 
+                //, "-!"
             ]
         }
     ]

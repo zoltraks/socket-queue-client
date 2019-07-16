@@ -98,12 +98,6 @@ let log = {
 	write: (msg) => {
 		logConsole("WRITE", msg);
 		logFile(msg, configuration.log);
-		if (configuration.quiet) {
-			return;
-		}
-		else {
-			console.log(msg);
-		}
 	},
 	error: (msg) => {
 		logConsole("ERROR", msg);
