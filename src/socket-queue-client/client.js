@@ -20,15 +20,19 @@ const argv = yargs
 	.alias('T', 'text')
 	.alias('L', 'log')
 	.alias('v', 'verbose')
+	.alias('I', 'idle')
+	.alias('R', 'reconnect')
 	.boolean('help')
 	.boolean('pretend')
 	.boolean('quiet')
 	.boolean('text')
+	.boolean('reconnect')
 	.help(false)
+	//.parse(process.argv.slice(1))
 	.argv
 	;
 
-if (argv.help) {
+if (argv.help || process.argv.length < 3) {
 	showHelp();
 	process.exit(0);
 }
@@ -110,7 +114,6 @@ let state = new State();
 
 let lockMessageBuffer = false;
 
-// 
 /**
  * This function creates and returns a net.Socket object to represent TCP client.
  * 
@@ -119,12 +122,16 @@ let lockMessageBuffer = false;
  */
 function socketConnect(host, port) {
 	const client = new net.Socket();
-	client.setTimeout(5000);
+	let idle = configuration.idle;
+	if (!idle) {
+		idle = 30;
+	}
+	client.setTimeout(idle * 1000);
 	if (!configuration.text) {
 		client.setEncoding('binary');
 	}
 	state.socketIdle = false;
-	// When receive server send back data.
+
 	client.on('data', (data) => {
 		state.socketIdle = false;
 		if (configuration.text) {
@@ -145,11 +152,11 @@ function socketConnect(host, port) {
 			let chunk = Buffer.from(data, 'binary');
 			state.dataBuffer.push.apply(state.dataBuffer, chunk);
 			while (true) {
-				let p = state.dataBuffer.indexOf(3);
+				let p = state.dataBuffer.indexOf(3); // ETX
 				if (p < 0) {
 					break;
 				}
-				let x = state.dataBuffer.indexOf(2);
+				let x = state.dataBuffer.indexOf(2); // STX
 				if (x >= 0 && x < p) {
 					let m = String.fromCharCode.apply(null, state.dataBuffer.slice(x + 1, p));
 					state.messageBuffer.push(m);
@@ -162,7 +169,6 @@ function socketConnect(host, port) {
 		}
 	});
 
-	// When connection disconnected.
 	client.on('end', () => {
 		log.write('Socket disconnected');
 		state.socketClient = false;
@@ -173,10 +179,14 @@ function socketConnect(host, port) {
 			log.write('Socket idle');
 		}
 		state.socketIdle = true;
+		if (configuration.reconnect) {
+			client.end();
+			//state.socketClient = false;
+		}
 	});
 
 	client.on('error', (error) => {
-		log.error('Socket error: ' + JSON.stringify(error));
+		log.error(`${error.errno} (${error.syscall})`);
 		client.destroy();
 		state.socketClient = false;
 	});
@@ -308,6 +318,10 @@ function parseOptions() {
 		configuration.quiet = argv.quiet;
 	}
 
+	if (argv.reconnect) {
+		configuration.reconnect = argv.reconnect;
+	}
+
 	if (argv.verbose) {
 		configuration.verbose = argv.verbose;
 	}
@@ -322,49 +336,73 @@ function parseOptions() {
 
 	if (argv.qos) {
 		if (!Number.isInteger(argv.qos)) {
-			log.error("Value for qos must be an integer");
+			log.error("Value for qos must be integer");
 			return false;
 		}
 		configuration.qos = argv.qos;
+	}
+
+	if (argv.idle) {
+		if (!Number.isInteger(argv.idle)) {
+			log.error("Value for idle must be integer");
+			return false;
+		}
+		configuration.idle = argv.idle;
 	}
 
 	return true;
 }
 
 function showHelp() {
-	console.log("Use folowing arguments to specify PLC host and MQTT broker address to use:");
-	console.log();
+	console.log("This program connects to a network socket and redirects all messages to MQTT broker on specified topic.");
+	console.log("By default it takes data between ASCII STX and ETX characters.");
+	console.log("Use text mode to take messages separated by newline.");
+	console.log("Use command line arguments to specify socket host and MQTT broker address to use.");
+	console.log("");
 	console.log("  -h <host>");
 	console.log("  --host <host>");
 	console.log("      PLC hostname or address");
-	console.log();
+	console.log("");
 	console.log("  -p <port>");
 	console.log("  --port <port>");
 	console.log("      PLC port number");
-	console.log();
+	console.log("");
 	console.log("  -b <broker>");
 	console.log("  --broker <broker>");
 	console.log("      MQTT broker hostname or address");
-	console.log();
+	console.log("");
 	console.log("  -t <topic>");
 	console.log("  --topic <topic>");
 	console.log("      MQTT topic name");
-	console.log();
+	console.log("");
+	console.log("  -L <file>");
+	console.log("  --log <file>");
+	console.log("      Log file");
+	console.log("");
 	console.log("  -q <qos>");
 	console.log("  --qos <qos>");
 	console.log("      MQTT qos value");
-	console.log();
+	console.log("");
 	console.log("  -T");
 	console.log("  --text");
 	console.log("      Text mode");
-	console.log();
+	console.log("");
+	console.log("  -R");
+	console.log("  --reconnect");
+	console.log("      Reconnect on idle");
+	console.log("");
+	console.log("  -I");
+	console.log("  --idle");
+	console.log("      Idle timeout (in seconds)");
+	console.log("");
 	console.log("  -!");
 	console.log("  --pretend");
 	console.log("      Don't run yet, just print configuration and exit");
-	console.log();
+	console.log("");
 	console.log("  -?");
 	console.log("  --help");
 	console.log("      Display this message");
+	console.log("");
 }
 
 function showConfiguration() {

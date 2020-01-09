@@ -44,6 +44,16 @@ class Configuration {
      * Verbose mode
      */
     verbose;
+    
+    /**
+     * Idle time
+     */
+    idle;
+    
+    /**
+     * Reconnect on idle
+     */
+    reconnect;
 
     constructor(file)
     {
